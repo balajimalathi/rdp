@@ -15,6 +15,7 @@
         <quarkus.platform.version>3.14.3</quarkus.platform.version>
         <skipITs>true</skipITs>
         <surefire-plugin.version>3.3.1</surefire-plugin.version>
+        <keycloak.version>24.0.4</keycloak.version>
     </properties>
 
     <dependencyManagement>
@@ -123,6 +124,15 @@
         <dependency>
           <groupId>io.quarkus</groupId>
           <artifactId>quarkus-qute</artifactId>
+        </dependency> 
+        <dependency>
+          <groupId>io.quarkus</groupId>
+          <artifactId>quarkus-oidc</artifactId>
+        </dependency>
+        <dependency>
+          <groupId>org.keycloak</groupId>
+          <artifactId>keycloak-admin-client</artifactId>
+          <version>${keycloak.version}</version>
         </dependency>   
       </dependencies>
 
