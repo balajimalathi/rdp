@@ -27,18 +27,24 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
-        </dependencies>
-    </dependencyManagement>
-
-    <dependencies>
+          </dependencies>
+        </dependencyManagement>
+        
+        <dependencies>
+          <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-hibernate-orm</artifactId>
+          </dependency>
+        <!--  -->
         <dependency>
           <groupId>io.quarkus</groupId>
-          <artifactId>quarkus-hibernate-orm</artifactId>
+          <artifactId>quarkus-rest</artifactId>
         </dependency>
         <dependency>
           <groupId>io.quarkus</groupId>
-          <artifactId>quarkus-resteasy-multipart</artifactId>
+          <artifactId>quarkus-rest-jackson</artifactId>
         </dependency>
+        <!--  -->
         <dependency>
           <groupId>io.quarkus</groupId>
           <artifactId>quarkus-jdbc-postgresql</artifactId>
@@ -46,10 +52,6 @@
         <dependency>
           <groupId>io.quarkus</groupId>
           <artifactId>quarkus-arc</artifactId>
-        </dependency>
-        <dependency>
-          <groupId>io.quarkus</groupId>
-          <artifactId>quarkus-resteasy</artifactId>
         </dependency>
         <dependency>
           <groupId>io.quarkus</groupId>
@@ -76,10 +78,6 @@
         <dependency>
           <groupId>io.quarkus</groupId>
           <artifactId>quarkus-smallrye-jwt</artifactId> 
-        </dependency>
-        <dependency>
-          <groupId>io.quarkus</groupId>
-          <artifactId>quarkus-resteasy-jackson</artifactId>
         </dependency>
         <dependency>
           <groupId>io.quarkus</groupId>
@@ -133,8 +131,21 @@
           <groupId>org.keycloak</groupId>
           <artifactId>keycloak-admin-client</artifactId>
           <version>${keycloak.version}</version>
-        </dependency>   
-      </dependencies>
+        </dependency>  
+        <dependency>
+          <groupId>com.auth0</groupId>
+          <artifactId>java-jwt</artifactId>
+          <version>3.18.2</version> <!-- Use the latest version -->
+      </dependency>  
+      <dependency>
+        <groupId>io.quarkus</groupId>
+        <artifactId>quarkus-oidc</artifactId>
+    </dependency>
+        <dependency>
+          <groupId>io.quarkus</groupId>
+          <artifactId>quarkus-security</artifactId>
+        </dependency>
+      </dependencies> 
 
     <build>
         <plugins>
