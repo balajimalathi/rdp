@@ -9,6 +9,7 @@ import lombok.Setter;
 @Setter
 public class SignUpRequest {
   private String userId;
+  private String roleId = null;
   private String firstName;
   private String lastName;
   private String email;

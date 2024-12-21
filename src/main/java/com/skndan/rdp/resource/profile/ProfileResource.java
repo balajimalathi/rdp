@@ -10,6 +10,7 @@ import org.springframework.data.domain.Sort;
 
 import com.skndan.rdp.config.EntityCopyUtils;
 import com.skndan.rdp.entity.Profile;
+import com.skndan.rdp.model.SignUpRequest;
 import com.skndan.rdp.repo.ProfileRepo;
 import com.skndan.rdp.service.auth.AuthService;
 
@@ -32,6 +33,8 @@ import jakarta.ws.rs.core.Response;
 
 @Path("/api/profile")
 @Authenticated
+@Consumes(MediaType.APPLICATION_JSON)
+@Produces(MediaType.APPLICATION_JSON)
 @Tag(name = "Profiles", description = "Profile Endpoints")
 public class ProfileResource {
 
@@ -72,17 +75,14 @@ public class ProfileResource {
   }
 
   @POST
-  @Consumes(MediaType.APPLICATION_JSON)
-  @Produces(MediaType.APPLICATION_JSON)
   @Transactional
-  public Response add(Profile profile) {
-    if (profile.id != null) {
-      throw new WebApplicationException("Id was invalidly set on request.", 422);
-    }
+  public Response add(SignUpRequest profile) {
+    // if (profile.id != null) {
+    // throw new WebApplicationException("Id was invalidly set on request.", 422);
+    // }
 
-
-    // profile = authService.createProfile(profile);
-    return Response.ok(profile).status(201).build();
+    Profile pro = authService.createProfile(profile);
+    return Response.ok(pro).status(201).build();
   }
 
   @DELETE
@@ -99,17 +99,17 @@ public class ProfileResource {
   // @PUT
   // @Path("/{id}")
   // public Response update(@PathParam("id") UUID id, Profile greeting) {
-  //   Optional<Profile> optional = profileRepo.findById(id);
+  // Optional<Profile> optional = profileRepo.findById(id);
 
-  //   if (optional.isPresent()) {
-  //     Profile profile = optional.get();
-  //     entityCopyUtils.copyProperties(profile, greeting);
-  //     profile.setUser(profileService.updateUser(profile));
-  //     Profile updateUsers = profileRepo.save(profile);
-  //     return Response.ok(updateUsers).status(200).build();
-  //   }
+  // if (optional.isPresent()) {
+  // Profile profile = optional.get();
+  // entityCopyUtils.copyProperties(profile, greeting);
+  // profile.setUser(profileService.updateUser(profile));
+  // Profile updateUsers = profileRepo.save(profile);
+  // return Response.ok(updateUsers).status(200).build();
+  // }
 
-  //   throw new IllegalArgumentException("No profile with id " + id + " exists");
+  // throw new IllegalArgumentException("No profile with id " + id + " exists");
   // }
 
   @GET

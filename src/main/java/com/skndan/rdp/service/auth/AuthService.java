@@ -1,6 +1,9 @@
 package com.skndan.rdp.service.auth;
 
+import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
+import org.keycloak.representations.idm.RoleRepresentation;
 
 import com.skndan.rdp.entity.Profile;
 import com.skndan.rdp.model.SignUpRequest;
@@ -26,17 +29,35 @@ public class AuthService {
 
     if (dept.isSocial()) {
       userId = dept.getUserId();
+      setDefaultRole(dept);
       return setProfile(dept, userId);
     } else {
       UserRecord user = new UserRecord(
           "", dept.getEmail(), dept.getEmail(), dept.getFirstName(), dept.getLastName(), dept.getPassword());
       // update keycloak
       userId = keycloakService.createUser(user);
+      dept.setUserId(userId);
+      setDefaultRole(dept);
       return setProfile(dept, userId);
     }
 
     // mailService.sendVendorRegistrationMail(dept, user.getPassword());
 
+  }
+
+  private void setDefaultRole(SignUpRequest dept) {
+
+    String defaultRole = "becff04f-e159-4dc1-8b43-13b169d8e482"; // user
+
+    String roleToFilter = dept.getRoleId() != null ? dept.getRoleId() : defaultRole;
+
+    List<RoleRepresentation> clientRoles = keycloakService.getAllRoles();
+
+    List<RoleRepresentation> filteredRoles = clientRoles.stream()
+        .filter(role -> role.getId().equals(roleToFilter))
+        .collect(Collectors.toList());
+
+    // keycloakService.assignRolesToUser(dept.getUserId(), filteredRoles);
   }
 
   public Profile setProfile(SignUpRequest dept, String userId) {
@@ -47,13 +68,24 @@ public class AuthService {
     profile.setUserId(userId);
 
     // save profile
-
     Optional<Profile> existingProfile = profileRepo.findByUserId(userId);
-    if(existingProfile.isPresent()){
+
+    // user is already present
+    if (existingProfile.isPresent()) {
       Profile _profile = existingProfile.get();
       return _profile;
     } else {
-      profile = profileRepo.save(profile);
+      // user not present
+      Optional<Profile> existingProfile2 = profileRepo.findByEmail(dept.getEmail());
+
+      // but profile is exist with email
+      if (existingProfile2.isPresent()) {
+        profile.setUserId(userId);
+        profile = profileRepo.save(profile);
+      } else {
+        // but profile is not exists at-all
+        profile = profileRepo.save(profile);
+      }
     }
     return profile;
   }

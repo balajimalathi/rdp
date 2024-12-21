@@ -8,6 +8,13 @@ import lombok.Setter;
 @Getter
 @Setter
 public class AuthResponse {
-  private String url;
-  private String social;
+
+  private String profileId;
+
+  private String name;
+
+  private String email;
+
+  private String mobile;
+
 }

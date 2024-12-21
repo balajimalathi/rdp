@@ -135,12 +135,12 @@
         <dependency>
           <groupId>com.auth0</groupId>
           <artifactId>java-jwt</artifactId>
-          <version>3.18.2</version> <!-- Use the latest version -->
-      </dependency>  
-      <dependency>
-        <groupId>io.quarkus</groupId>
-        <artifactId>quarkus-oidc</artifactId>
-    </dependency>
+          <version>3.18.2</version>
+        </dependency>  
+        <dependency>
+          <groupId>io.quarkus</groupId>
+          <artifactId>quarkus-oidc</artifactId>
+        </dependency>
         <dependency>
           <groupId>io.quarkus</groupId>
           <artifactId>quarkus-security</artifactId>

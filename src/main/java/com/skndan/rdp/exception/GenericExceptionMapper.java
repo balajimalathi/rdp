@@ -9,8 +9,10 @@ public class GenericExceptionMapper implements ExceptionMapper<GenericException>
 
     @Override
     public Response toResponse(GenericException exception) {
+        ErrorResponse errorResponse = new ErrorResponse(exception.getStatusCode(), exception.getMessage());
         return Response.status(exception.getStatusCode())
-                .entity(exception.getMessage())
+                .entity(errorResponse)
+                .type("application/json")
                 .build();
     }
 }
