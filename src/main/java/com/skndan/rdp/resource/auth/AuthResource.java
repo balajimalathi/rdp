@@ -9,6 +9,8 @@ import org.eclipse.microprofile.openapi.annotations.responses.APIResponses;
 
 import com.skndan.rdp.entity.Profile;
 import com.skndan.rdp.exception.GenericException;
+import com.skndan.rdp.model.AuthRequest;
+import com.skndan.rdp.model.AuthResponse;
 import com.skndan.rdp.model.SignUpRequest;
 import com.skndan.rdp.model.UserRecord;
 import com.skndan.rdp.service.auth.AuthService;
@@ -53,5 +55,22 @@ public class AuthResource {
   public Response add(SignUpRequest dept) {
     Profile profile = authService.createProfile(dept);
     return Response.ok(profile).status(201).build();
+  }
+
+  @POST
+  @Path("/social")
+  @Operation(summary = "Social Login", description = "Returns the auth url string")
+  public Response google(@RequestBody AuthRequest authRequest) {
+    String uri = keycloakService.getUrl(authRequest);
+    AuthResponse authResponse = new AuthResponse();
+    authResponse.setUrl(uri);
+    authResponse.setSocial("google");
+    return Response.ok(authResponse).build();
+  }
+
+  @POST
+  @Path("/callback")
+  public Response handleGoogleCallback(@RequestBody AuthRequest authRequest) {
+    return keycloakService.getSocialToken(authRequest);
   }
 }

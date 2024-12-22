@@ -16,5 +16,9 @@ public class AuthResponse {
   private String email;
 
   private String mobile;
+  
+  private String url;
+
+  private String social;
 
 }
