@@ -76,6 +76,7 @@ public class KeycloakService {
         user.setEmail(userRecord.email());
         user.setFirstName(userRecord.firstName());
         user.setLastName(userRecord.lastName());
+        user.setEmailVerified(true);
         user.setEnabled(true);
 
         // Create the user

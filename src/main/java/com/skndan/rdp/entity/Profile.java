@@ -13,8 +13,11 @@ import lombok.Setter;
 @Setter
 public class Profile extends BaseEntity {
   
-  @NotBlank(message = "Name should be present")
-  private String name;
+  @NotBlank(message = "First name should be present")
+  private String firstName;
+
+  @NotBlank(message = "Last name should be present")
+  private String lastName;
 
   @Email
   @Column(unique = true)
@@ -28,5 +31,7 @@ public class Profile extends BaseEntity {
 
   @Column(unique = true)
   private String fcm;
+
+  private String roleId;
 
 }

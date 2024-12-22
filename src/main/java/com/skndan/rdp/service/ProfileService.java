@@ -19,15 +19,15 @@ public class ProfileService {
 
     Profile profile = profileRepo.findByUserId(sub).orElseThrow(() -> new GenericException(400, "User not found"));
 
-    if(!profile.getActive()) {
+    if (!profile.getActive()) {
       throw new GenericException(400, "Your account is inactive. Please contact the administrator");
     }
 
     response.setProfileId(profile.getId().toString());
-    response.setName(profile.getName());
+    response.setName((profile.getFirstName() + " " + profile.getLastName()).trim());
     response.setEmail(profile.getEmail());
     response.setMobile(profile.getMobile());
-    
+
     return response;
   }
 }

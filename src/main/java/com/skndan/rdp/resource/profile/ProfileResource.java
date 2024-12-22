@@ -15,7 +15,6 @@ import com.skndan.rdp.repo.ProfileRepo;
 import com.skndan.rdp.service.auth.AuthService;
 
 import io.quarkus.security.Authenticated;
-import jakarta.annotation.security.RolesAllowed;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.Consumes;
@@ -23,6 +22,7 @@ import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
+import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
@@ -51,7 +51,7 @@ public class ProfileResource {
   public Response list(
       @QueryParam("pageNo") @DefaultValue("0") int pageNo,
       @QueryParam("pageSize") @DefaultValue("25") int pageSize,
-      @QueryParam("sortField") @DefaultValue("name") String sortField,
+      @QueryParam("sortField") @DefaultValue("firstName") String sortField,
       @QueryParam("sortDir") @DefaultValue("ASC") String sortDir) {
 
     Sort sortSt = sortDir.equals("DESC") ? Sort.by(sortField).descending() : Sort.by(sortField).ascending();
@@ -62,7 +62,6 @@ public class ProfileResource {
 
   @GET
   @Path("/{id}")
-  @RolesAllowed({ "user", "admin" })
   public Response getByID(@PathParam("id") UUID id) {
     Optional<Profile> optional = profileRepo.findById(id);
 
@@ -96,21 +95,20 @@ public class ProfileResource {
     return Response.status(204).build();
   }
 
-  // @PUT
-  // @Path("/{id}")
-  // public Response update(@PathParam("id") UUID id, Profile greeting) {
-  // Optional<Profile> optional = profileRepo.findById(id);
+  @PUT
+  @Path("/{id}")
+  public Response update(@PathParam("id") UUID id, Profile greeting) {
+    Optional<Profile> optional = profileRepo.findById(id);
 
-  // if (optional.isPresent()) {
-  // Profile profile = optional.get();
-  // entityCopyUtils.copyProperties(profile, greeting);
-  // profile.setUser(profileService.updateUser(profile));
-  // Profile updateUsers = profileRepo.save(profile);
-  // return Response.ok(updateUsers).status(200).build();
-  // }
+    if (optional.isPresent()) {
+      Profile profile = optional.get();
+      entityCopyUtils.copyProperties(profile, greeting);
+      Profile updateUsers = profileRepo.save(profile);
+      return Response.ok(updateUsers).status(200).build();
+    }
 
-  // throw new IllegalArgumentException("No profile with id " + id + " exists");
-  // }
+    throw new IllegalArgumentException("No profile with id " + id + " exists");
+  }
 
   @GET
   @Path("/get-by-user/{id}")

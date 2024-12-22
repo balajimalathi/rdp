@@ -31,23 +31,20 @@ public class AuthService {
 
     if (dept.isSocial()) {
       userId = dept.getUserId();
-      setDefaultRole(dept);
-      return setProfile(dept, userId);
+      String roleId = setDefaultRole(dept);
+      return setProfile(dept, userId, roleId);
     } else {
       UserRecord user = new UserRecord(
-          "", dept.getEmail(), dept.getEmail(), dept.getFirstName(), dept.getLastName(), dept.getPassword());
+          "", dept.getEmail(), dept.getEmail(), dept.getFirstName(), dept.getLastName(), dept.getEmail());
       // update keycloak
       userId = keycloakService.createUser(user);
       dept.setUserId(userId);
-      setDefaultRole(dept);
-      return setProfile(dept, userId);
+      String roleId = setDefaultRole(dept);
+      return setProfile(dept, userId, roleId);
     }
-
-    // mailService.sendVendorRegistrationMail(dept, user.getPassword());
-
   }
 
-  private void setDefaultRole(SignUpRequest dept) {
+  private String setDefaultRole(SignUpRequest dept) {
 
     String defaultRole = "becff04f-e159-4dc1-8b43-13b169d8e482"; // user
 
@@ -59,12 +56,13 @@ public class AuthService {
         .filter(role -> role.getId().equals(roleToFilter))
         .collect(Collectors.toList());
 
-    // keycloakService.assignRolesToUser(dept.getUserId(), filteredRoles);
+    return filteredRoles.get(0).getId();
   }
 
-  public Profile setProfile(SignUpRequest dept, String userId) {
+  public Profile setProfile(SignUpRequest dept, String userId, String roleId) {
     Profile profile = new Profile();
-    profile.setName((dept.getFirstName() + " " + dept.getLastName()).trim());
+    profile.setFirstName(dept.getFirstName());
+    profile.setLastName(dept.getLastName());
     profile.setEmail(dept.getEmail());
     profile.setMobile(dept.getMobile());
     profile.setUserId(userId);
