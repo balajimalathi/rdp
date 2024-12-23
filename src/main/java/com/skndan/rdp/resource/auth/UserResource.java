@@ -1,7 +1,5 @@
 package com.skndan.rdp.resource.auth;
 
-import java.security.Principal;
-
 import com.skndan.rdp.model.AuthResponse;
 import com.skndan.rdp.service.ProfileService;
 

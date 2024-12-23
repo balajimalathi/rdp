@@ -4,6 +4,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import org.eclipse.microprofile.openapi.annotations.tags.Tag;
+import org.keycloak.representations.idm.RoleRepresentation;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -11,11 +12,14 @@ import org.springframework.data.domain.Sort;
 import com.skndan.rdp.config.EntityCopyUtils;
 import com.skndan.rdp.entity.Profile;
 import com.skndan.rdp.model.SignUpRequest;
+import com.skndan.rdp.repo.ProfileFilterRepo;
 import com.skndan.rdp.repo.ProfileRepo;
 import com.skndan.rdp.service.auth.AuthService;
+import com.skndan.rdp.service.keycloak.KeycloakService;
 
 import io.quarkus.security.Authenticated;
 import jakarta.inject.Inject;
+import jakarta.persistence.EntityManager;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
@@ -47,6 +51,15 @@ public class ProfileResource {
   @Inject
   EntityCopyUtils entityCopyUtils;
 
+  @Inject
+  ProfileFilterRepo profileFilterRepo;
+
+  @Inject
+  EntityManager entityManager;
+
+  @Inject
+  KeycloakService keycloakService;
+
   @GET
   public Response list(
       @QueryParam("pageNo") @DefaultValue("0") int pageNo,
@@ -57,6 +70,45 @@ public class ProfileResource {
     Sort sortSt = sortDir.equals("DESC") ? Sort.by(sortField).descending() : Sort.by(sortField).ascending();
 
     Page<Profile> user = profileRepo.findAll(PageRequest.of(pageNo, pageSize, sortSt));
+    return Response.ok(user).status(200).build();
+  }
+
+  // @GET
+  // @Path("/filter")
+  // public Response listFilter(
+  // @QueryParam("pageNo") @DefaultValue("0") int pageNo,
+  // @QueryParam("pageSize") @DefaultValue("25") int pageSize,
+  // @QueryParam("query") String query,
+  // @QueryParam("sortField") @DefaultValue("firstName") String sortField,
+  // @QueryParam("sortDir") @DefaultValue("ASC") String sortDir) {
+
+  // // department:HR and salary>:50000
+
+  // QueryBuilder<Profile> queryBuilder = QueryBuilder.create(entityManager,
+  // Profile.class);
+  // PaginatedResponse<Profile> user = queryBuilder.build(query, pageNo,
+  // pageSize);
+
+  // return Response.ok(user).status(200).build();
+  // }
+
+  @GET
+  @Path("/filter")
+  public Response listFilter(
+      @QueryParam("pageNo") @DefaultValue("0") int pageNo,
+      @QueryParam("pageSize") @DefaultValue("25") int pageSize,
+      @QueryParam("role") String role,
+      @QueryParam("sortField") @DefaultValue("firstName") String sortField,
+      @QueryParam("sortDir") @DefaultValue("ASC") String sortDir) {
+
+    // department:HR and salary>:50000
+
+    Sort sortSt = sortDir.equals("DESC") ? Sort.by(sortField).descending() : Sort.by(sortField).ascending();
+
+    RoleRepresentation roleRepresentation = keycloakService.findRoleByName(role);
+
+    Page<Profile> user = profileRepo.findAllByRoleId(roleRepresentation.getId(),
+        PageRequest.of(pageNo, pageSize, sortSt));
     return Response.ok(user).status(200).build();
   }
 

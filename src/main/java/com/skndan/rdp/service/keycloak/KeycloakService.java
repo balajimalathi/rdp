@@ -106,7 +106,7 @@ public class KeycloakService {
         ClientRepresentation clientResource = keycloak.realm(realm).clients().findByClientId(clientId)
                 .stream()
                 .findFirst()
-                .orElseThrow(() -> new RuntimeException("Client not found: " + "horizon-ui"));
+                .orElseThrow(() -> new RuntimeException("Client not found: " + "rdp-ui"));
 
         // Fetch and return roles for the client
         return keycloak.realm(realm).clients().get(clientResource.getId()).roles().list();
@@ -285,4 +285,18 @@ public class KeycloakService {
                 .toString();
     }
 
+    public RoleRepresentation findRoleByName(String roleName) {
+        // Retrieve the client resource using the client ID
+        ClientRepresentation clientResource = keycloak.realm(realm).clients().findByClientId(clientId)
+                .stream()
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("Client not found: " + "rdp-ui"));
+
+        // Fetch roles and find the role by name
+        return keycloak.realm(realm).clients().get(clientResource.getId()).roles().list()
+                .stream()
+                .filter(role -> role.getName().equals(roleName))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("Role not found: " + roleName));
+    }
 }
