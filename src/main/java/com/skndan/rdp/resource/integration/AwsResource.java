@@ -10,6 +10,7 @@ import com.skndan.rdp.model.aws.AmiResponse;
 import com.skndan.rdp.model.aws.InstanceRequestDto;
 import com.skndan.rdp.model.aws.InstanceStateRequest;
 import com.skndan.rdp.model.aws.InstanceStateResponse;
+import com.skndan.rdp.model.aws.KeyPairDetails;
 import com.skndan.rdp.entity.Instance;
 import com.skndan.rdp.service.integration.AwsService;
 import com.skndan.rdp.service.integration.aws.AwsRegionService;
@@ -81,4 +82,10 @@ public class AwsResource {
     return Response.ok(instanceState).status(200).build();
   }
 
+  @GET
+  @Path("/keypair")
+  public Response listKeyPairs() {
+    List<KeyPairDetails> response = awsService.getKeyPairs();
+    return Response.ok(response).build();
+  }
 }

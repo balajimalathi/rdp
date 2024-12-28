@@ -6,8 +6,11 @@ import software.amazon.awssdk.services.ec2.model.CreateImageResponse;
 import software.amazon.awssdk.services.ec2.model.DescribeImagesRequest;
 import software.amazon.awssdk.services.ec2.model.DescribeImagesResponse;
 import software.amazon.awssdk.services.ec2.model.DescribeInstancesResponse;
+import software.amazon.awssdk.services.ec2.model.DescribeKeyPairsRequest;
+import software.amazon.awssdk.services.ec2.model.DescribeKeyPairsResponse;
 import software.amazon.awssdk.services.ec2.model.Ec2Exception;
 import software.amazon.awssdk.services.ec2.model.InstanceType;
+import software.amazon.awssdk.services.ec2.model.KeyPairInfo;
 import software.amazon.awssdk.services.ec2.model.RunInstancesRequest;
 import software.amazon.awssdk.services.ec2.model.RunInstancesResponse;
 
@@ -28,6 +31,7 @@ import com.skndan.rdp.model.aws.AmiRequestDto;
 import com.skndan.rdp.model.aws.AmiResponse;
 import com.skndan.rdp.model.aws.InstanceRequestDto;
 import com.skndan.rdp.model.aws.InstanceStateResponse;
+import com.skndan.rdp.model.aws.KeyPairDetails;
 import com.skndan.rdp.repo.InstanceRepo;
 import com.skndan.rdp.service.integration.aws.InstanceStateService;
 
@@ -244,6 +248,23 @@ public class AwsService {
       default:
         return instanceStateService.terminateInstance(instanceId);
     }
+  }
+
+  public List<KeyPairDetails> getKeyPairs() {
+    DescribeKeyPairsRequest request = DescribeKeyPairsRequest.builder().build();
+    DescribeKeyPairsResponse response = ec2Client.describeKeyPairs(request);
+
+    List<KeyPairDetails> keyPairList = response.keyPairs().stream()
+        .map(this::mapKeyPairInfoToDetails)
+        .collect(Collectors.toList());
+
+    return keyPairList;
+  }
+
+  private KeyPairDetails mapKeyPairInfoToDetails(KeyPairInfo keyPairInfo) {
+    return new KeyPairDetails(
+        keyPairInfo.keyName(),
+        keyPairInfo.keyFingerprint());
   }
 
 }
