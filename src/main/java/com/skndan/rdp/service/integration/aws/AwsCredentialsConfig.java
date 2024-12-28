@@ -15,6 +15,8 @@ public class AwsCredentialsConfig {
 
   private String region;
 
+  private String keyPair;
+
   @Override
   public String toString() {
     return "AwsCredentialsConfig{" +

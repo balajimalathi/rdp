@@ -9,17 +9,28 @@ import software.amazon.awssdk.services.ec2.model.DescribeInstancesResponse;
 import software.amazon.awssdk.services.ec2.model.DescribeKeyPairsRequest;
 import software.amazon.awssdk.services.ec2.model.DescribeKeyPairsResponse;
 import software.amazon.awssdk.services.ec2.model.Ec2Exception;
+import software.amazon.awssdk.services.ec2.model.GetPasswordDataRequest;
+import software.amazon.awssdk.services.ec2.model.GetPasswordDataResponse;
 import software.amazon.awssdk.services.ec2.model.InstanceType;
 import software.amazon.awssdk.services.ec2.model.KeyPairInfo;
 import software.amazon.awssdk.services.ec2.model.RunInstancesRequest;
 import software.amazon.awssdk.services.ec2.model.RunInstancesResponse;
 
+import java.security.KeyFactory;
+import java.security.PrivateKey;
+import java.security.Security;
+import java.security.spec.PKCS8EncodedKeySpec;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
+
+import javax.crypto.Cipher;
+
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
 
 import com.skndan.rdp.config.EntityCopyUtils;
 import com.skndan.rdp.entity.Instance;
@@ -33,6 +44,8 @@ import com.skndan.rdp.model.aws.InstanceRequestDto;
 import com.skndan.rdp.model.aws.InstanceStateResponse;
 import com.skndan.rdp.model.aws.KeyPairDetails;
 import com.skndan.rdp.repo.InstanceRepo;
+import com.skndan.rdp.service.integration.aws.AwsCredentialsConfig;
+import com.skndan.rdp.service.integration.aws.AwsCredentialsService;
 import com.skndan.rdp.service.integration.aws.InstanceStateService;
 
 import io.quarkus.runtime.Startup;
@@ -61,6 +74,9 @@ public class AwsService {
 
   @Inject
   InstanceStateService instanceStateService;
+
+  @Inject
+  AwsCredentialsService awsCredentialsService;
 
   /**
    * Retrieves EC2 instances from AWS, synchronizes them with the local database,
@@ -267,4 +283,49 @@ public class AwsService {
         keyPairInfo.keyFingerprint());
   }
 
+  public String getPassword() {
+    GetPasswordDataResponse passwordDataResponse = ec2Client.getPasswordData(
+        GetPasswordDataRequest.builder()
+            .instanceId("i-0b321116948c9eba6")
+            .build());
+
+    String encryptedPassword = passwordDataResponse.passwordData();
+    System.out.println(encryptedPassword);
+
+    
+    AwsCredentialsConfig credentials = awsCredentialsService.fetchAwsCredentials();
+    try { 
+      encryptedPassword = decryptPassword(encryptedPassword, credentials.getKeyPair());
+    } catch (Exception e) {
+      // TODO Auto-generated catch block
+      e.printStackTrace();
+    }
+    return encryptedPassword;
+  }
+
+  private String decryptPassword(String encryptedPassword, String privateKeyPem) throws Exception {
+    Security.addProvider(new BouncyCastleProvider());
+
+    // Remove PEM header and footer, and decode base64
+    String privateKeyPEM = privateKeyPem
+        .replace("-----BEGIN RSA PRIVATE KEY-----", "")
+        .replace("-----END RSA PRIVATE KEY-----", "")
+        .replace("\n", "")
+        .replace(" ", "");
+
+    byte[] encodedPrivateKey = Base64.getDecoder().decode(privateKeyPEM.trim());
+
+    // Generate PrivateKey object
+    KeyFactory keyFactory = KeyFactory.getInstance("RSA");
+    PKCS8EncodedKeySpec keySpec = new PKCS8EncodedKeySpec(encodedPrivateKey);
+    PrivateKey privateKey = keyFactory.generatePrivate(keySpec);
+
+    // Decrypt using Cipher
+    Cipher cipher = Cipher.getInstance("RSA");
+    cipher.init(Cipher.DECRYPT_MODE, privateKey);
+
+    byte[] decryptedBytes = cipher.doFinal(Base64.getDecoder().decode(encryptedPassword));
+
+    return new String(decryptedBytes);
+  }
 }

@@ -4,6 +4,7 @@ import java.util.List;
 
 import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 
+import com.skndan.rdp.service.integration.AwsService;
 import com.skndan.rdp.service.integration.aws.AwsRegionService;
 
 import jakarta.annotation.security.PermitAll;
@@ -23,12 +24,12 @@ import jakarta.ws.rs.core.Response;
 public class TestResource {
 
   @Inject
-  AwsRegionService awsRegionService;
+  AwsService awsService;
 
-  // @GET
-  // @Path("/regions")
-  // public Response getByID() {
-  //   List<String> regions = awsRegionService.getAvailableRegions();
-  //   return Response.ok(regions).status(200).build();
-  // }
+  @GET
+  @Path("/password")
+  public Response getByID() {
+    String regions = awsService.getPassword();
+    return Response.ok(regions).status(200).build();
+  }
 }
