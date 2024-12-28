@@ -147,12 +147,11 @@
         </dependency>
         <!-- aws -->
         <dependency>
-        <groupId>software.amazon.awssdk</groupId>
-        <artifactId>ec2</artifactId>
-        <version>2.20.10</version> <!-- Use the latest version -->
-    </dependency>  
-
-
+          <groupId>software.amazon.awssdk</groupId>
+          <artifactId>ec2</artifactId>
+          <version>2.20.10</version> <!-- Use the latest version --> 
+        </dependency>  
+   
       </dependencies> 
 
     <build>
@@ -207,6 +206,15 @@
                         <java.util.logging.manager>org.jboss.logmanager.LogManager</java.util.logging.manager>
                         <maven.home>${maven.home}</maven.home>
                     </systemPropertyVariables>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <version>3.6.3</version>
+                <configuration>
+                    <reportOutputDirectory>${project.basedir}/docs/api</reportOutputDirectory>
+                    <destDir>javadoc</destDir>
                 </configuration>
             </plugin>
         </plugins>
