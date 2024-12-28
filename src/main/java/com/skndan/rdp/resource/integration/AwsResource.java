@@ -7,12 +7,16 @@ import com.skndan.rdp.model.LabelValue;
 import com.skndan.rdp.model.aws.AmiDetails;
 import com.skndan.rdp.model.aws.AmiRequestDto;
 import com.skndan.rdp.model.aws.AmiResponse;
-import com.skndan.rdp.model.aws.InstanceResponse;
+import com.skndan.rdp.model.aws.InstanceRequestDto;
+import com.skndan.rdp.model.aws.InstanceStateRequest;
+import com.skndan.rdp.model.aws.InstanceStateResponse;
+import com.skndan.rdp.entity.Instance;
 import com.skndan.rdp.service.integration.AwsService;
 import com.skndan.rdp.service.integration.aws.AwsRegionService;
 
 import jakarta.annotation.security.PermitAll;
 import jakarta.inject.Inject;
+import jakarta.transaction.Transactional;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
@@ -41,17 +45,17 @@ public class AwsResource {
     return Response.ok(regions).status(200).build();
   }
 
-  @GET
-  @Path("/ami")
-  public Response getAmi() {
-    List<AmiDetails> amis = awsService.getAmis();
-    return Response.ok(amis).status(200).build();
+  @POST
+  @Path("/instance")
+  public Response createInstance(InstanceRequestDto request) {
+    Instance instance = awsService.createEc2Instance(request);
+    return Response.ok(instance).status(201).build();
   }
 
   @GET
   @Path("/instance")
   public Response getInstance() {
-    List<InstanceResponse> instances = awsService.getInstance();
+    List<Instance> instances = awsService.getInstance();
     return Response.ok(instances).status(200).build();
   }
 
@@ -60,6 +64,21 @@ public class AwsResource {
   public Response createAmi(AmiRequestDto request) {
     AmiResponse amis = awsService.createAmis(request);
     return Response.ok(amis).status(200).build();
+  }
+
+  @GET
+  @Path("/ami")
+  public Response getAmi() {
+    List<AmiDetails> amis = awsService.getAmis();
+    return Response.ok(amis).status(200).build();
+  }
+
+  @POST
+  @Path("/state")
+  @Transactional
+  public Response updateState(InstanceStateRequest request) {
+    InstanceStateResponse instanceState = awsService.changeState(request.getInstanceId(), request.getState());
+    return Response.ok(instanceState).status(200).build();
   }
 
 }

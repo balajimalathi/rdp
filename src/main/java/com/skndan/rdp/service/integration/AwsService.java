@@ -10,21 +10,38 @@ import software.amazon.awssdk.services.ec2.model.Ec2Exception;
 import software.amazon.awssdk.services.ec2.model.InstanceType;
 import software.amazon.awssdk.services.ec2.model.RunInstancesRequest;
 import software.amazon.awssdk.services.ec2.model.RunInstancesResponse;
-import software.amazon.awssdk.services.ec2.model.SecurityGroup;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
 
+import com.skndan.rdp.config.EntityCopyUtils;
+import com.skndan.rdp.entity.Instance;
+import com.skndan.rdp.entity.constants.CloudProvider;
+import com.skndan.rdp.entity.constants.InstanceState;
 import com.skndan.rdp.exception.GenericException;
 import com.skndan.rdp.model.aws.AmiDetails;
 import com.skndan.rdp.model.aws.AmiRequestDto;
 import com.skndan.rdp.model.aws.AmiResponse;
-import com.skndan.rdp.model.aws.InstanceResponse;
+import com.skndan.rdp.model.aws.InstanceRequestDto;
+import com.skndan.rdp.model.aws.InstanceStateResponse;
+import com.skndan.rdp.repo.InstanceRepo;
+import com.skndan.rdp.service.integration.aws.InstanceStateService;
 
 import io.quarkus.runtime.Startup;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.transaction.Transactional;
 
+/**
+ * Service class for managing AWS EC2 instances and AMIs.
+ * Provides functionality to interact with the AWS EC2 API for instance
+ * retrieval,
+ * synchronization, creation, and AMI (Amazon Machine Image) operations.
+ */
 @Startup
 @ApplicationScoped
 public class AwsService {
@@ -32,45 +49,142 @@ public class AwsService {
   @Inject
   Ec2Client ec2Client;
 
-  public List<InstanceResponse> getInstance() {
+  @Inject
+  InstanceRepo instanceRepo; // JPA repository or equivalent
+
+  @Inject
+  EntityCopyUtils entityCopyUtils;
+
+  @Inject
+  InstanceStateService instanceStateService;
+
+  /**
+   * Retrieves EC2 instances from AWS, synchronizes them with the local database,
+   * and returns a list of the latest AWS EC2 instances.
+   * <p>
+   * This method performs the following actions:
+   * <ul>
+   * <li>Fetches EC2 instances from AWS.</li>
+   * <li>Compares the fetched instances with the local database records.</li>
+   * <li>Adds new instances to the database if they do not exist.</li>
+   * <li>Updates existing database records with the latest AWS data.</li>
+   * <li>Deletes database records for instances that no longer exist in AWS.</li>
+   * </ul>
+   *
+   * @return List of {@link Instance} objects representing the latest AWS EC2
+   *         instances.
+   */
+  @Transactional
+  public List<Instance> getInstance() {
     DescribeInstancesResponse response = ec2Client.describeInstances();
 
-    return response.reservations().stream()
+    List<Instance> awsInstances = response.reservations().stream()
         .flatMap(reservation -> reservation.instances().stream())
         .map(instance -> {
-          InstanceResponse res = new InstanceResponse();
+          Instance res = new Instance();
           res.setInstanceId(instance.instanceId());
           res.setState(instance.state().name().name());
-          res.setPublicDnsName(instance.publicDnsName()); 
+          res.setPublicDnsName(instance.publicDnsName());
           res.setPublicIpAddress(instance.publicIpAddress());
           res.setPrivateIpAddress(instance.privateIpAddress());
           res.setInstanceType(instance.instanceTypeAsString());
           res.setImageId(instance.imageId());
           res.setKeyName(instance.keyName());
           res.setLaunchTime(instance.launchTime().toString());
-          res.setAvailabilityZone(instance.placement().availabilityZone()); 
+          res.setAvailabilityZone(instance.placement().availabilityZone());
+          res.setProvider(CloudProvider.AMAZON_WEB_SERVICE);
           return res;
         })
         .collect(Collectors.toList());
+
+    Iterable<Instance> dbInstances = instanceRepo.findAll();
+
+    Map<Object, Instance> dbInstanceMap = StreamSupport.stream(dbInstances.spliterator(), false)
+        .collect(Collectors.toMap(instance -> instance.getInstanceId(), Function.identity()));
+
+    // Map AWS instances by ID for quick lookup
+    Set<String> awsInstanceIds = awsInstances.stream()
+        .map(instance -> instance.getInstanceId())
+        .collect(Collectors.toSet());
+
+    for (Instance awsInstance : awsInstances) {
+      Instance dbInstance = dbInstanceMap.get(awsInstance.getInstanceId());
+      if (dbInstance == null) {
+        // Add new instance
+        instanceRepo.save(awsInstance);
+      } else {
+        // Update existing instance
+        entityCopyUtils.copyProperties(dbInstance, awsInstance);
+        instanceRepo.save(dbInstance);
+      }
+    }
+
+    // Remove instances that no longer exist in AWS
+    for (Instance dbInstance : dbInstances) {
+      if (!awsInstanceIds.contains(dbInstance.getInstanceId())) {
+        instanceRepo.delete(dbInstance);
+      }
+    }
+
+    return awsInstances;
   }
 
-  public String createEc2Instance() {
+  /**
+   * Creates a new EC2 instance on AWS with the specified configuration.
+   *
+   * @return The instance ID of the newly created EC2 instance.
+   */
+  @Transactional
+  public Instance createEc2Instance(InstanceRequestDto request) {
+
+    // TODO: To be checked - start
+    DescribeImagesResponse amiDetails = ec2Client.describeImages(DescribeImagesRequest.builder()
+        .imageIds(request.getAmiId()).build());
+
+    String bootMode = amiDetails.images().get(0).bootMode().name();
+
+    InstanceType instanceType = bootMode.equals("uefi") ? InstanceType.T3_MICRO : InstanceType.T2_MICRO;
+    // To be checked - end
 
     // Create EC2 instance
     RunInstancesRequest runRequest = RunInstancesRequest.builder()
-        .imageId("ami-xxxxxxxxxx") // Replace with appropriate AMI ID
-        .instanceType(InstanceType.T2_MICRO)
+        .imageId(request.getAmiId()) // Replace with appropriate AMI ID
+        .instanceType(InstanceType.T3_MICRO)
         .minCount(1)
         .maxCount(1)
-        .keyName("your-key-pair")
+        .keyName(request.getKeyName())
         .build();
 
     RunInstancesResponse runResponse = ec2Client.runInstances(runRequest);
-    String instanceId = runResponse.instances().get(0).instanceId();
+    var dd = runResponse.instances().get(0);
 
-    return instanceId; // Return the instance ID
+    Instance res = new Instance();
+    res.setInstanceId(dd.instanceId());
+    res.setState(dd.state().name().name());
+    res.setPublicDnsName(dd.publicDnsName());
+    res.setPublicIpAddress(dd.publicIpAddress());
+    res.setPrivateIpAddress(dd.privateIpAddress());
+    res.setInstanceType(dd.instanceTypeAsString());
+    res.setImageId(dd.imageId());
+    res.setKeyName(dd.keyName());
+    res.setLaunchTime(dd.launchTime().toString());
+    res.setAvailabilityZone(dd.placement().availabilityZone());
+    res.setProvider(CloudProvider.AMAZON_WEB_SERVICE);
+
+    res = instanceRepo.save(res);
+
+    return res; // Return the instance ID
   }
 
+  /**
+   * Retrieves the list of AMIs (Amazon Machine Images) owned by the user.
+   * <p>
+   * This method fetches AMI details such as image ID, name, description, and
+   * state.
+   *
+   * @return List of {@link AmiDetails} objects containing the details of the
+   *         user's AMIs.
+   */
   public List<AmiDetails> getAmis() {
 
     // Using amazon is taking infinite time to load
@@ -87,6 +201,18 @@ public class AwsService {
     return amiList;
   }
 
+  /**
+   * Creates a new AMI (Amazon Machine Image) based on the specified instance ID
+   * and other details.
+   *
+   * @param amiRequestDto The {@link AmiRequestDto} object containing details of
+   *                      the AMI to be created:
+   *                      instance ID, name, description, and a flag indicating
+   *                      whether to reboot the instance.
+   * @return An {@link AmiResponse} object containing the AMI ID and a success
+   *         message.
+   * @throws GenericException If the AMI creation fails due to an AWS error.
+   */
   public AmiResponse createAmis(AmiRequestDto amiRequestDto) {
     try {
       CreateImageRequest request = CreateImageRequest.builder()
@@ -103,4 +229,21 @@ public class AwsService {
       throw new GenericException(400, "Failed to create AMI");
     }
   }
+
+  @Transactional
+  public InstanceStateResponse changeState(String instanceId, InstanceState state) {
+    switch (state) {
+      case START:
+        return instanceStateService.startInstance(instanceId);
+      case STOP:
+        return instanceStateService.stopInstance(instanceId);
+      case REBOOT:
+        return instanceStateService.rebootInstance(instanceId);
+      case HIBERNATE:
+        return instanceStateService.hibernateInstance(instanceId);
+      default:
+        return instanceStateService.terminateInstance(instanceId);
+    }
+  }
+
 }
