@@ -12,6 +12,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.transaction.Transactional;
 
 @ApplicationScoped
 public class AwsCredentialsService {
@@ -21,6 +22,7 @@ public class AwsCredentialsService {
 
   ObjectMapper objectMapper = new ObjectMapper();
 
+  @Transactional 
   public AwsCredentialsConfig fetchAwsCredentials() {
 
     Integration integration = integrationRepo.findOneByCloudProvider(CloudProvider.AMAZON_WEB_SERVICE)

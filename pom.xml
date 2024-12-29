@@ -38,11 +38,15 @@
         <!--  -->
         <dependency>
           <groupId>io.quarkus</groupId>
-          <artifactId>quarkus-rest</artifactId>
+          <artifactId>quarkus-resteasy</artifactId>
         </dependency>
         <dependency>
           <groupId>io.quarkus</groupId>
-          <artifactId>quarkus-rest-jackson</artifactId>
+          <artifactId>quarkus-resteasy-client</artifactId>
+        </dependency>
+        <dependency>
+          <groupId>io.quarkus</groupId>
+          <artifactId>quarkus-resteasy-jackson</artifactId>
         </dependency>
         <!--  -->
         <dependency>
@@ -155,6 +159,10 @@
           <groupId>org.bouncycastle</groupId>
           <artifactId>bcprov-jdk15on</artifactId>
           <version>1.68</version> <!-- Use the latest version -->
+        </dependency>
+        <dependency>
+          <groupId>io.quarkus</groupId>
+          <artifactId>quarkus-scheduler</artifactId>
         </dependency>
       </dependencies> 
 

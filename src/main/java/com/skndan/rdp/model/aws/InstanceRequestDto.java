@@ -8,6 +8,7 @@ import lombok.Setter;
 @Setter
 @Data
 public class InstanceRequestDto {
+  private String name;
   private String amiId;
   private String keyName; 
 }

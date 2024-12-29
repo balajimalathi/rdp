@@ -13,8 +13,11 @@ import software.amazon.awssdk.services.ec2.model.GetPasswordDataRequest;
 import software.amazon.awssdk.services.ec2.model.GetPasswordDataResponse;
 import software.amazon.awssdk.services.ec2.model.InstanceType;
 import software.amazon.awssdk.services.ec2.model.KeyPairInfo;
+import software.amazon.awssdk.services.ec2.model.ResourceType;
 import software.amazon.awssdk.services.ec2.model.RunInstancesRequest;
 import software.amazon.awssdk.services.ec2.model.RunInstancesResponse;
+import software.amazon.awssdk.services.ec2.model.Tag;
+import software.amazon.awssdk.services.ec2.model.TagSpecification;
 
 import java.security.KeyFactory;
 import java.security.PrivateKey;
@@ -23,7 +26,10 @@ import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
@@ -31,11 +37,15 @@ import java.util.stream.StreamSupport;
 import javax.crypto.Cipher;
 
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+import com.skndan.rdp.client.GuacamoleService;
 import com.skndan.rdp.config.EntityCopyUtils;
 import com.skndan.rdp.entity.Instance;
 import com.skndan.rdp.entity.constants.CloudProvider;
 import com.skndan.rdp.entity.constants.InstanceState;
+import com.skndan.rdp.entity.constants.Platform;
 import com.skndan.rdp.exception.GenericException;
 import com.skndan.rdp.model.aws.AmiDetails;
 import com.skndan.rdp.model.aws.AmiRequestDto;
@@ -43,10 +53,12 @@ import com.skndan.rdp.model.aws.AmiResponse;
 import com.skndan.rdp.model.aws.InstanceRequestDto;
 import com.skndan.rdp.model.aws.InstanceStateResponse;
 import com.skndan.rdp.model.aws.KeyPairDetails;
+import com.skndan.rdp.model.guacamole.Connection;
 import com.skndan.rdp.repo.InstanceRepo;
 import com.skndan.rdp.service.integration.aws.AwsCredentialsConfig;
 import com.skndan.rdp.service.integration.aws.AwsCredentialsService;
 import com.skndan.rdp.service.integration.aws.InstanceStateService;
+import com.skndan.rdp.service.integration.aws.AwsPostInstanceQueue;
 
 import io.quarkus.runtime.Startup;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -76,7 +88,12 @@ public class AwsService {
   InstanceStateService instanceStateService;
 
   @Inject
-  AwsCredentialsService awsCredentialsService;
+  GuacamoleService guacamoleService;
+
+  @Inject
+  AwsPostInstanceQueue awsPostInstanceQueue;
+
+  private static final Logger LOG = LoggerFactory.getLogger(AwsService.class);
 
   /**
    * Retrieves EC2 instances from AWS, synchronizes them with the local database,
@@ -96,12 +113,29 @@ public class AwsService {
    */
   @Transactional
   public List<Instance> getInstance() {
+    LOG.info("Get Instance");
     DescribeInstancesResponse response = ec2Client.describeInstances();
 
+    LOG.info("Fetching SDK Instances");
     List<Instance> awsInstances = response.reservations().stream()
         .flatMap(reservation -> reservation.instances().stream())
         .map(instance -> {
+
+          List<Tag> tags = instance.tags();
+          String instanceName = null;
+
+          if (tags != null) {
+            Optional<Tag> nameTag = tags.stream()
+                .filter(tag -> "Name".equals(tag.key()))
+                .findFirst();
+
+            if (nameTag.isPresent()) {
+              instanceName = nameTag.get().value();
+            }
+          }
+
           Instance res = new Instance();
+          res.setName(instanceName);
           res.setInstanceId(instance.instanceId());
           res.setState(instance.state().name().name());
           res.setPublicDnsName(instance.publicDnsName());
@@ -116,32 +150,51 @@ public class AwsService {
           return res;
         })
         .collect(Collectors.toList());
+    LOG.info("Total SDK Instances: " + awsInstances.size());
+
+    LOG.info("Fetching DB Instances");
 
     Iterable<Instance> dbInstances = instanceRepo.findAll();
+    LOG.info("Total DB Instances: " + StreamSupport.stream(dbInstances.spliterator(), false).count());
 
+    LOG.info("Creating Instance ID Map");
     Map<Object, Instance> dbInstanceMap = StreamSupport.stream(dbInstances.spliterator(), false)
         .collect(Collectors.toMap(instance -> instance.getInstanceId(), Function.identity()));
 
     // Map AWS instances by ID for quick lookup
+    LOG.info("Map AWS instances by ID for quick lookup");
     Set<String> awsInstanceIds = awsInstances.stream()
         .map(instance -> instance.getInstanceId())
         .collect(Collectors.toSet());
 
+    LOG.info("Looping Aws instance and update the DB");
     for (Instance awsInstance : awsInstances) {
+      LOG.info("InstanceID : " + awsInstance.getInstanceId());
       Instance dbInstance = dbInstanceMap.get(awsInstance.getInstanceId());
       if (dbInstance == null) {
         // Add new instance
+        LOG.info("New Instance : " + awsInstance.getInstanceId());
         instanceRepo.save(awsInstance);
       } else {
         // Update existing instance
+        LOG.info("Existing Instance : " + awsInstance.getInstanceId());
         entityCopyUtils.copyProperties(dbInstance, awsInstance);
+
+        if(((dbInstance.getPassword() == null) || dbInstance.getPassword().equals("")) && !(dbInstance.getState().toLowerCase().equals("terminated"))) {
+          LOG.info("Scheduled to get password : " + awsInstance.getInstanceId());
+          awsPostInstanceQueue.schedulePasswordRetrieval(dbInstance);
+        }
+
         instanceRepo.save(dbInstance);
+        LOG.info("Updating DB Instance : " + awsInstance.getInstanceId());
       }
     }
 
     // Remove instances that no longer exist in AWS
+    LOG.info("Remove instances that no longer exist in AWS");
     for (Instance dbInstance : dbInstances) {
       if (!awsInstanceIds.contains(dbInstance.getInstanceId())) {
+        LOG.info("Removed InstanceID : " + dbInstance.getInstanceId());
         instanceRepo.delete(dbInstance);
       }
     }
@@ -173,12 +226,20 @@ public class AwsService {
         .minCount(1)
         .maxCount(1)
         .keyName(request.getKeyName())
+        .tagSpecifications(TagSpecification.builder()
+            .resourceType(ResourceType.INSTANCE)
+            .tags(Tag.builder()
+                .key("Name")
+                .value(request.getName())
+                .build())
+            .build())
         .build();
 
     RunInstancesResponse runResponse = ec2Client.runInstances(runRequest);
     var dd = runResponse.instances().get(0);
 
     Instance res = new Instance();
+    res.setName(request.getName());
     res.setInstanceId(dd.instanceId());
     res.setState(dd.state().name().name());
     res.setPublicDnsName(dd.publicDnsName());
@@ -190,8 +251,39 @@ public class AwsService {
     res.setLaunchTime(dd.launchTime().toString());
     res.setAvailabilityZone(dd.placement().availabilityZone());
     res.setProvider(CloudProvider.AMAZON_WEB_SERVICE);
+    res.setPlatform(Platform.WINDOWS);
+    res.setUsername("Administrator");
 
-    res = instanceRepo.save(res);
+    awsPostInstanceQueue.schedulePasswordRetrieval(res);
+    // GetPasswordDataResponse passwordDataResponse = ec2Client.getPasswordData(
+    // GetPasswordDataRequest.builder()
+    // .instanceId(dd.instanceId())
+    // .build());
+
+    // String password = passwordDataResponse.passwordData();
+    // boolean encrypted = true;
+
+    // try {
+    // AwsCredentialsConfig credentials =
+    // awsCredentialsService.fetchAwsCredentials();
+    // password = decryptPassword(password, credentials.getKeyPair());
+    // encrypted = false;
+    // } catch (Exception e) {
+    // e.printStackTrace();
+    // }
+
+    // res.setPassword(password);
+    // res.setEncrypted(encrypted);
+
+    // create guacamole connection
+    // Connection connection = guacamoleService.createConnection(res);
+
+    // res.setGuacamoleIdentifier(connection.getIdentifier());
+
+    // base64 convert {identifier}/c/{dataSource}
+    // res.setGuacamoleConnectionString();
+
+    instanceRepo.save(res);
 
     return res; // Return the instance ID
   }
@@ -281,51 +373,5 @@ public class AwsService {
     return new KeyPairDetails(
         keyPairInfo.keyName(),
         keyPairInfo.keyFingerprint());
-  }
-
-  public String getPassword() {
-    GetPasswordDataResponse passwordDataResponse = ec2Client.getPasswordData(
-        GetPasswordDataRequest.builder()
-            .instanceId("i-0b321116948c9eba6")
-            .build());
-
-    String encryptedPassword = passwordDataResponse.passwordData();
-    System.out.println(encryptedPassword);
-
-    
-    AwsCredentialsConfig credentials = awsCredentialsService.fetchAwsCredentials();
-    try { 
-      encryptedPassword = decryptPassword(encryptedPassword, credentials.getKeyPair());
-    } catch (Exception e) {
-      // TODO Auto-generated catch block
-      e.printStackTrace();
-    }
-    return encryptedPassword;
-  }
-
-  private String decryptPassword(String encryptedPassword, String privateKeyPem) throws Exception {
-    Security.addProvider(new BouncyCastleProvider());
-
-    // Remove PEM header and footer, and decode base64
-    String privateKeyPEM = privateKeyPem
-        .replace("-----BEGIN RSA PRIVATE KEY-----", "")
-        .replace("-----END RSA PRIVATE KEY-----", "")
-        .replace("\n", "")
-        .replace(" ", "");
-
-    byte[] encodedPrivateKey = Base64.getDecoder().decode(privateKeyPEM.trim());
-
-    // Generate PrivateKey object
-    KeyFactory keyFactory = KeyFactory.getInstance("RSA");
-    PKCS8EncodedKeySpec keySpec = new PKCS8EncodedKeySpec(encodedPrivateKey);
-    PrivateKey privateKey = keyFactory.generatePrivate(keySpec);
-
-    // Decrypt using Cipher
-    Cipher cipher = Cipher.getInstance("RSA");
-    cipher.init(Cipher.DECRYPT_MODE, privateKey);
-
-    byte[] decryptedBytes = cipher.doFinal(Base64.getDecoder().decode(encryptedPassword));
-
-    return new String(decryptedBytes);
   }
 }

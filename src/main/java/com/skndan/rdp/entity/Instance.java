@@ -1,6 +1,7 @@
 package com.skndan.rdp.entity;
 
 import com.skndan.rdp.entity.constants.CloudProvider;
+import com.skndan.rdp.entity.constants.Platform;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -19,6 +20,12 @@ import lombok.Setter;
  * This class is mapped to a database table and stores details of EC2 instances.
  */
 public class Instance extends BaseEntity {
+  /**
+   * The name of the EC2 instance.
+   * This field is mapped to a database column with a unique constraint.
+   */
+  @Column(unique = true)
+  private String name;
 
   /**
    * The unique identifier of the EC2 instance.
@@ -88,4 +95,20 @@ public class Instance extends BaseEntity {
    */
   @Enumerated(value = EnumType.STRING)
   private CloudProvider provider;
+
+  /**
+   * Platform of the EC2 instance.
+   * This field is stored as a string in the database.
+   * Example: {@link Platform#WINDOWS}.
+   */
+  @Enumerated(value = EnumType.STRING)
+  private Platform platform = Platform.WINDOWS;
+
+  private String username;
+
+  private String password;
+
+  private Boolean encrypted;
+
+  private String guacamoleIdentifier;
 }
