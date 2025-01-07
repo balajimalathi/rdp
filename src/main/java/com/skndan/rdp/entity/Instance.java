@@ -111,4 +111,6 @@ public class Instance extends BaseEntity {
   private Boolean encrypted;
 
   private String guacamoleIdentifier;
+
+  private String guacamoleConnectionString;
 }

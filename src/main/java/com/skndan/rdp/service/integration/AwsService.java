@@ -1,5 +1,7 @@
 package com.skndan.rdp.service.integration;
 
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.ec2.model.CreateImageRequest;
 import software.amazon.awssdk.services.ec2.model.CreateImageResponse;
@@ -42,6 +44,7 @@ import org.slf4j.LoggerFactory;
 
 import com.skndan.rdp.client.GuacamoleService;
 import com.skndan.rdp.config.EntityCopyUtils;
+import com.skndan.rdp.entity.Ami;
 import com.skndan.rdp.entity.Instance;
 import com.skndan.rdp.entity.constants.CloudProvider;
 import com.skndan.rdp.entity.constants.InstanceState;
@@ -54,6 +57,7 @@ import com.skndan.rdp.model.aws.InstanceRequestDto;
 import com.skndan.rdp.model.aws.InstanceStateResponse;
 import com.skndan.rdp.model.aws.KeyPairDetails;
 import com.skndan.rdp.model.guacamole.Connection;
+import com.skndan.rdp.repo.AmiRepo;
 import com.skndan.rdp.repo.InstanceRepo;
 import com.skndan.rdp.service.integration.aws.AwsCredentialsConfig;
 import com.skndan.rdp.service.integration.aws.AwsCredentialsService;
@@ -79,7 +83,10 @@ public class AwsService {
   Ec2Client ec2Client;
 
   @Inject
-  InstanceRepo instanceRepo; // JPA repository or equivalent
+  InstanceRepo instanceRepo;
+
+  @Inject
+  AmiRepo amiRepo;
 
   @Inject
   EntityCopyUtils entityCopyUtils;
@@ -92,6 +99,9 @@ public class AwsService {
 
   @Inject
   AwsPostInstanceQueue awsPostInstanceQueue;
+
+  @Inject
+  AwsCredentialsService awsCredentialsService;
 
   private static final Logger LOG = LoggerFactory.getLogger(AwsService.class);
 
@@ -116,7 +126,7 @@ public class AwsService {
     LOG.info("Get Instance");
     DescribeInstancesResponse response = ec2Client.describeInstances();
 
-    LOG.info("Fetching SDK Instances");
+    LOG.info("Fetching SDK Instances OLB8Ho?hhhASkji?b652StGoN4GIyVZs");
     List<Instance> awsInstances = response.reservations().stream()
         .flatMap(reservation -> reservation.instances().stream())
         .map(instance -> {
@@ -180,10 +190,12 @@ public class AwsService {
         LOG.info("Existing Instance : " + awsInstance.getInstanceId());
         entityCopyUtils.copyProperties(dbInstance, awsInstance);
 
-        if(((dbInstance.getPassword() == null) || dbInstance.getPassword().equals("")) && !(dbInstance.getState().toLowerCase().equals("terminated"))) {
-          LOG.info("Scheduled to get password : " + awsInstance.getInstanceId());
-          awsPostInstanceQueue.schedulePasswordRetrieval(dbInstance);
-        }
+        // if (((dbInstance.getPassword() == null) ||
+        // dbInstance.getPassword().equals(""))
+        // && !(dbInstance.getState().toLowerCase().equals("terminated"))) {
+        // LOG.info("Scheduled to get password : " + awsInstance.getInstanceId());
+        // awsPostInstanceQueue.schedulePasswordRetrieval(dbInstance);
+        // }
 
         instanceRepo.save(dbInstance);
         LOG.info("Updating DB Instance : " + awsInstance.getInstanceId());
@@ -211,13 +223,26 @@ public class AwsService {
   public Instance createEc2Instance(InstanceRequestDto request) {
 
     // TODO: To be checked - start
-    DescribeImagesResponse amiDetails = ec2Client.describeImages(DescribeImagesRequest.builder()
-        .imageIds(request.getAmiId()).build());
+    // DescribeImagesResponse amiDetails =
+    // ec2Client.describeImages(DescribeImagesRequest.builder()
+    // .imageIds(request.getAmiId()).build());
+    // String bootMode = amiDetails.images().get(0).bootMode().name();
+    // InstanceType instanceType = bootMode.equals("uefi") ? InstanceType.T3_MICRO :
+    // InstanceType.T2_MICRO;
+    // TODO: To be checked - end
 
-    String bootMode = amiDetails.images().get(0).bootMode().name();
+    
+    // Ami details
+    Ami ami = amiRepo.findByImageId(request.getAmiId())
+        .orElseThrow(() -> new GenericException(400, "AMI image not found. Please check your AWS console"));
 
-    InstanceType instanceType = bootMode.equals("uefi") ? InstanceType.T3_MICRO : InstanceType.T2_MICRO;
-    // To be checked - end
+    String keyName = "";
+    if (request.getKeyName() != null) {
+      keyName = request.getKeyName();
+    } else {
+      AwsCredentialsConfig credentials = awsCredentialsService.fetchAwsCredentials();
+      keyName = credentials.getKeyPairName();
+    }
 
     // Create EC2 instance
     RunInstancesRequest runRequest = RunInstancesRequest.builder()
@@ -225,7 +250,7 @@ public class AwsService {
         .instanceType(InstanceType.T3_MICRO)
         .minCount(1)
         .maxCount(1)
-        .keyName(request.getKeyName())
+        .keyName(keyName)
         .tagSpecifications(TagSpecification.builder()
             .resourceType(ResourceType.INSTANCE)
             .tags(Tag.builder()
@@ -234,6 +259,15 @@ public class AwsService {
                 .build())
             .build())
         .build();
+
+    // Retrieve current credentials from the default client
+    // StaticCredentialsProvider credentialsProvider = (StaticCredentialsProvider)
+    // ec2Client.credentialsProvider().get();
+
+    // Ec2Client clientWithRegion = Ec2Client.builder()
+    // .region(Region.of("region"))
+    // .credentialsProvider(credentialsProvider)
+    // .build();
 
     RunInstancesResponse runResponse = ec2Client.runInstances(runRequest);
     var dd = runResponse.instances().get(0);
@@ -252,9 +286,10 @@ public class AwsService {
     res.setAvailabilityZone(dd.placement().availabilityZone());
     res.setProvider(CloudProvider.AMAZON_WEB_SERVICE);
     res.setPlatform(Platform.WINDOWS);
-    res.setUsername("Administrator");
+    res.setUsername(ami.getUsername());
+    res.setPassword(ami.getPassword());
 
-    awsPostInstanceQueue.schedulePasswordRetrieval(res);
+    // awsPostInstanceQueue.schedulePasswordRetrieval(res);
     // GetPasswordDataResponse passwordDataResponse = ec2Client.getPasswordData(
     // GetPasswordDataRequest.builder()
     // .instanceId(dd.instanceId())
@@ -272,20 +307,26 @@ public class AwsService {
     // e.printStackTrace();
     // }
 
-    // res.setPassword(password);
     // res.setEncrypted(encrypted);
 
     // create guacamole connection
-    // Connection connection = guacamoleService.createConnection(res);
+    Connection connection = guacamoleService.createConnection(res);
+    res.setGuacamoleIdentifier(connection.getIdentifier());
 
-    // res.setGuacamoleIdentifier(connection.getIdentifier());
-
+    String guacamoleConnectionString = convertBase64(connection.getIdentifier() + "/c/postgresql");
     // base64 convert {identifier}/c/{dataSource}
-    // res.setGuacamoleConnectionString();
+    res.setGuacamoleConnectionString(guacamoleConnectionString);
 
     instanceRepo.save(res);
 
     return res; // Return the instance ID
+  }
+
+  private String convertBase64(String string) {
+    if (string == null) {
+      throw new IllegalArgumentException("Input string cannot be null");
+    }
+    return Base64.getEncoder().encodeToString(string.getBytes(java.nio.charset.StandardCharsets.UTF_8));
   }
 
   /**
@@ -336,6 +377,15 @@ public class AwsService {
 
       CreateImageResponse response = ec2Client.createImage(request);
 
+      Ami ami = new Ami();
+      ami.setInstanceId(amiRequestDto.getInstanceId());
+      ami.setName(amiRequestDto.getName());
+      ami.setImageId(response.imageId());
+      ami.setDescription(amiRequestDto.getDescription());
+      ami.setUsername(amiRequestDto.getUsername());
+      ami.setPassword(amiRequestDto.getPassword());
+      // persist
+      amiRepo.save(ami);
       return new AmiResponse(response.imageId(), "AMI created successfully");
     } catch (Ec2Exception e) {
       throw new GenericException(400, "Failed to create AMI");

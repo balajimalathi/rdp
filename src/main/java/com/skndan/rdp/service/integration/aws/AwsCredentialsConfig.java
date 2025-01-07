@@ -16,6 +16,8 @@ public class AwsCredentialsConfig {
   private String region;
 
   private String keyPair;
+  
+  private String keyPairName;
 
   @Override
   public String toString() {

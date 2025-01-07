@@ -43,6 +43,7 @@ public class AwsCredentialsService {
     credentials.setSecretAccessKey(hashMap.get("secretAccessKey").toString());
     credentials.setRegion(hashMap.get("region").toString());
     credentials.setKeyPair(hashMap.get("keyPair").toString());
+    credentials.setKeyPairName(hashMap.get("keyPairName").toString());
 
     return credentials;
   }

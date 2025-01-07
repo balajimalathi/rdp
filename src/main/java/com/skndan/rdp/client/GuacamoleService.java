@@ -63,6 +63,8 @@ public class GuacamoleService {
   @Transactional
   public Connection createConnection(Instance instance) {
 
+    InstanceValidator.validateInstance(instance);
+
     Connection connection = new Connection();
     connection.setName(instance.getInstanceId());
     connection.setParentIdentifier("ROOT");

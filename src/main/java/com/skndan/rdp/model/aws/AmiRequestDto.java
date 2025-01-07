@@ -11,5 +11,7 @@ public class AmiRequestDto {
   private String instanceId;
   private String name;
   private String description;
+  private String username;
+  private String password;
   private boolean noReboot;
 }
