@@ -1,7 +1,5 @@
 package com.skndan.rdp.service.integration;
 
-import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
-import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.ec2.model.CreateImageRequest;
 import software.amazon.awssdk.services.ec2.model.CreateImageResponse;
@@ -12,8 +10,6 @@ import software.amazon.awssdk.services.ec2.model.DescribeInstancesResponse;
 import software.amazon.awssdk.services.ec2.model.DescribeKeyPairsRequest;
 import software.amazon.awssdk.services.ec2.model.DescribeKeyPairsResponse;
 import software.amazon.awssdk.services.ec2.model.Ec2Exception;
-import software.amazon.awssdk.services.ec2.model.GetPasswordDataRequest;
-import software.amazon.awssdk.services.ec2.model.GetPasswordDataResponse;
 import software.amazon.awssdk.services.ec2.model.InstanceType;
 import software.amazon.awssdk.services.ec2.model.KeyPairInfo;
 import software.amazon.awssdk.services.ec2.model.Reservation;
@@ -23,24 +19,15 @@ import software.amazon.awssdk.services.ec2.model.RunInstancesResponse;
 import software.amazon.awssdk.services.ec2.model.Tag;
 import software.amazon.awssdk.services.ec2.model.TagSpecification;
 
-import java.security.KeyFactory;
-import java.security.PrivateKey;
-import java.security.Security;
-import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
-import javax.crypto.Cipher;
-
-import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -48,7 +35,6 @@ import com.skndan.rdp.client.GuacamoleService;
 import com.skndan.rdp.config.EntityCopyUtils;
 import com.skndan.rdp.entity.Ami;
 import com.skndan.rdp.entity.Instance;
-import com.skndan.rdp.entity.Profile;
 import com.skndan.rdp.entity.constants.CloudProvider;
 import com.skndan.rdp.entity.constants.InstanceState;
 import com.skndan.rdp.entity.constants.Platform;
