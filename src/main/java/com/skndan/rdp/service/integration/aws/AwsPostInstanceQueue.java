@@ -1,31 +1,19 @@
 package com.skndan.rdp.service.integration.aws;
 
-import java.security.KeyFactory;
-import java.security.PrivateKey;
-import java.security.Security;
-import java.security.spec.PKCS8EncodedKeySpec;
-import java.util.Base64;
+import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-import javax.crypto.Cipher;
-
-import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.jboss.logging.Logger;
 
 import com.skndan.rdp.client.GuacamoleService;
 import com.skndan.rdp.entity.Instance;
-import com.skndan.rdp.model.guacamole.Connection;
 import com.skndan.rdp.repo.InstanceRepo;
+import com.skndan.rdp.service.integration.AwsService;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-import jakarta.transaction.Transactional;
 import software.amazon.awssdk.services.ec2.Ec2Client;
-import software.amazon.awssdk.services.ec2.model.DescribeInstancesRequest;
-import software.amazon.awssdk.services.ec2.model.DescribeInstancesResponse;
-import software.amazon.awssdk.services.ec2.model.GetPasswordDataRequest;
-import software.amazon.awssdk.services.ec2.model.GetPasswordDataResponse;
 
 @ApplicationScoped
 public class AwsPostInstanceQueue {
@@ -41,114 +29,38 @@ public class AwsPostInstanceQueue {
   InstanceRepo instanceRepo;
 
   @Inject
+  AwsService awsService;
+
+  @Inject
   AwsCredentialsService awsCredentialsService;
 
   @Inject
   GuacamoleService guacamoleService;
 
   private static final int MAX_RETRY_ATTEMPTS = 5;
+  private static final int INITIAL_DELAY = 5;
 
-  @Transactional
-  public void schedulePasswordRetrieval(Instance instance) {
-    schedulePasswordRetrievalWithRetry(instance, 0);
-  }
+  private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
 
-  private void schedulePasswordRetrievalWithRetry(Instance instance, int attemptCount) {
-    executor.schedule(() -> {
+  public void waitForInstanceDetails(String instanceId) {
+    // Schedule a task to run every 5 seconds
+    scheduler.scheduleWithFixedDelay(() -> {
       try {
-        LOG.info("Getting Instance State");
-        // Check instance state
-        DescribeInstancesResponse describeResponse = ec2Client.describeInstances(
-            DescribeInstancesRequest.builder()
-                .instanceIds(instance.getInstanceId())
-                .build());
+        LOG.info("Checking instance details...");
+        Instance instance = awsService.getInstanceById(instanceId);
 
-        String currentState = describeResponse.reservations().get(0)
-            .instances().get(0)
-            .state().name().name();
-
-        if ("running".equalsIgnoreCase(currentState)) {
-          // Retrieve and process password
-          retrieveAndProcessPassword(instance);
+        if (instance != null && instance.getPublicDnsName() != null) {
+          LOG.info("Instance is ready with public IP: " + instance.getPublicDnsName()); 
+          awsService.updateInstance(instance, instanceId);
+          scheduler.shutdown(); // Stop polling once the IP is available
         } else {
-          // Reschedule if not running
-          handleNonRunningState(instance, attemptCount);
+          LOG.info("Instance is still initializing..." + instanceId);
         }
       } catch (Exception e) {
-        LOG.error("Error retrieving instance state", e);
-        handleNonRunningState(instance, attemptCount);
+        LOG.error("Error fetching instance details: " + e.getMessage());
+        scheduler.shutdown(); // Stop polling on error
       }
-    }, 10, TimeUnit.SECONDS);
-  }
-
-  private void handleNonRunningState(Instance instance, int attemptCount) {
-    if (attemptCount > MAX_RETRY_ATTEMPTS) {
-      LOG.info("Instance not running. Rescheduling password retrieval. Attempt: " + (attemptCount + 1));
-      schedulePasswordRetrievalWithRetry(instance, attemptCount + 1);
-    } else {
-      LOG.warn("Max retry attempts reached for instance: " + instance.getInstanceId());
-      // Optional: Mark instance as failed or send notification
-    }
-  }
-
-  private void retrieveAndProcessPassword(Instance instance) {
-    try {
-      GetPasswordDataResponse passwordDataResponse = ec2Client.getPasswordData(
-          GetPasswordDataRequest.builder()
-              .instanceId(instance.getInstanceId())
-              .build());
-
-      String password = passwordDataResponse.passwordData();
-      boolean encrypted = true;
-
-      try {
-        AwsCredentialsConfig credentials = awsCredentialsService.fetchAwsCredentials();
-        password = decryptPassword(password, credentials.getKeyPair());
-        encrypted = false;
-      } catch (Exception e) {
-        LOG.error("Password decryption failed", e);
-      }
-
-      // Update instance with password
-      instance.setPassword(password);
-      instance.setEncrypted(encrypted);
-      instanceRepo.save(instance);
-
-      // Optional: Create Guacamole connection
-      Connection connection = guacamoleService.createConnection(instance);
-      instance.setGuacamoleIdentifier(connection.getIdentifier());
-      instanceRepo.save(instance);
-
-    } catch (Exception e) {
-      LOG.error("Failed to retrieve password", e);
-      handleNonRunningState(instance, 0);
-    }
-  }
-
-  private String decryptPassword(String encryptedPassword, String privateKeyPem) throws Exception {
-    Security.addProvider(new BouncyCastleProvider());
-
-    // Remove PEM header and footer, and decode base64
-    String privateKeyPEM = privateKeyPem
-        .replace("-----BEGIN RSA PRIVATE KEY-----", "")
-        .replace("-----END RSA PRIVATE KEY-----", "")
-        .replace("\n", "")
-        .replace(" ", "");
-
-    byte[] encodedPrivateKey = Base64.getDecoder().decode(privateKeyPEM.trim());
-
-    // Generate PrivateKey object
-    KeyFactory keyFactory = KeyFactory.getInstance("RSA");
-    PKCS8EncodedKeySpec keySpec = new PKCS8EncodedKeySpec(encodedPrivateKey);
-    PrivateKey privateKey = keyFactory.generatePrivate(keySpec);
-
-    // Decrypt using Cipher
-    Cipher cipher = Cipher.getInstance("RSA");
-    cipher.init(Cipher.DECRYPT_MODE, privateKey);
-
-    byte[] decryptedBytes = cipher.doFinal(Base64.getDecoder().decode(encryptedPassword));
-
-    return new String(decryptedBytes);
+    }, INITIAL_DELAY, MAX_RETRY_ATTEMPTS, TimeUnit.SECONDS); // Initial delay = 0, polling interval = 5 seconds
   }
 
 }

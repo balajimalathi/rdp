@@ -1,5 +1,6 @@
 package com.skndan.rdp.repo;
 
+import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.data.repository.CrudRepository;
@@ -10,5 +11,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 
 @ApplicationScoped
 public interface InstanceRepo extends CrudRepository<Instance, UUID>, PagingAndSortingRepository<Instance, UUID> {
+
+  Optional<Instance> findByInstanceId(String instanceId);
 
 }

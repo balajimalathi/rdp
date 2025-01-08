@@ -7,6 +7,7 @@ import software.amazon.awssdk.services.ec2.model.CreateImageRequest;
 import software.amazon.awssdk.services.ec2.model.CreateImageResponse;
 import software.amazon.awssdk.services.ec2.model.DescribeImagesRequest;
 import software.amazon.awssdk.services.ec2.model.DescribeImagesResponse;
+import software.amazon.awssdk.services.ec2.model.DescribeInstancesRequest;
 import software.amazon.awssdk.services.ec2.model.DescribeInstancesResponse;
 import software.amazon.awssdk.services.ec2.model.DescribeKeyPairsRequest;
 import software.amazon.awssdk.services.ec2.model.DescribeKeyPairsResponse;
@@ -15,6 +16,7 @@ import software.amazon.awssdk.services.ec2.model.GetPasswordDataRequest;
 import software.amazon.awssdk.services.ec2.model.GetPasswordDataResponse;
 import software.amazon.awssdk.services.ec2.model.InstanceType;
 import software.amazon.awssdk.services.ec2.model.KeyPairInfo;
+import software.amazon.awssdk.services.ec2.model.Reservation;
 import software.amazon.awssdk.services.ec2.model.ResourceType;
 import software.amazon.awssdk.services.ec2.model.RunInstancesRequest;
 import software.amazon.awssdk.services.ec2.model.RunInstancesResponse;
@@ -46,6 +48,7 @@ import com.skndan.rdp.client.GuacamoleService;
 import com.skndan.rdp.config.EntityCopyUtils;
 import com.skndan.rdp.entity.Ami;
 import com.skndan.rdp.entity.Instance;
+import com.skndan.rdp.entity.Profile;
 import com.skndan.rdp.entity.constants.CloudProvider;
 import com.skndan.rdp.entity.constants.InstanceState;
 import com.skndan.rdp.entity.constants.Platform;
@@ -231,7 +234,6 @@ public class AwsService {
     // InstanceType.T2_MICRO;
     // TODO: To be checked - end
 
-    
     // Ami details
     Ami ami = amiRepo.findByImageId(request.getAmiId())
         .orElseThrow(() -> new GenericException(400, "AMI image not found. Please check your AWS console"));
@@ -289,7 +291,7 @@ public class AwsService {
     res.setUsername(ami.getUsername());
     res.setPassword(ami.getPassword());
 
-    // awsPostInstanceQueue.schedulePasswordRetrieval(res);
+    awsPostInstanceQueue.waitForInstanceDetails(dd.instanceId());
     // GetPasswordDataResponse passwordDataResponse = ec2Client.getPasswordData(
     // GetPasswordDataRequest.builder()
     // .instanceId(dd.instanceId())
@@ -309,13 +311,14 @@ public class AwsService {
 
     // res.setEncrypted(encrypted);
 
-    // create guacamole connection
-    Connection connection = guacamoleService.createConnection(res);
-    res.setGuacamoleIdentifier(connection.getIdentifier());
+    // // create guacamole connection
+    // Connection connection = guacamoleService.createConnection(res);
+    // res.setGuacamoleIdentifier(connection.getIdentifier());
 
-    String guacamoleConnectionString = convertBase64(connection.getIdentifier() + "/c/postgresql");
-    // base64 convert {identifier}/c/{dataSource}
-    res.setGuacamoleConnectionString(guacamoleConnectionString);
+    // String guacamoleConnectionString = convertBase64(connection.getIdentifier() +
+    // "/c/postgresql");
+    // // base64 convert {identifier}/c/{dataSource}
+    // res.setGuacamoleConnectionString(guacamoleConnectionString);
 
     instanceRepo.save(res);
 
@@ -423,5 +426,55 @@ public class AwsService {
     return new KeyPairDetails(
         keyPairInfo.keyName(),
         keyPairInfo.keyFingerprint());
+  }
+
+  public Instance getInstanceById(String instanceId) {
+
+    Instance res = new Instance();
+
+    DescribeInstancesRequest request = DescribeInstancesRequest.builder()
+        .instanceIds(instanceId)
+        .build();
+
+    DescribeInstancesResponse response = ec2Client.describeInstances(request);
+
+    Reservation reservation = response.reservations().get(0);
+    var dd = reservation.instances().get(0);
+
+    res.setInstanceId(dd.instanceId());
+    res.setState(dd.state().name().name());
+    res.setPublicDnsName(dd.publicDnsName());
+    res.setPublicIpAddress(dd.publicIpAddress());
+    res.setPrivateIpAddress(dd.privateIpAddress());
+    res.setInstanceType(dd.instanceTypeAsString());
+    res.setImageId(dd.imageId());
+    res.setKeyName(dd.keyName());
+    res.setLaunchTime(dd.launchTime().toString());
+    res.setAvailabilityZone(dd.placement().availabilityZone());
+
+    if (!(dd.publicIpAddress() == null) || !dd.publicIpAddress().equals("")) {
+      // create guacamole connection
+      Connection connection = guacamoleService.createConnection(res);
+      res.setGuacamoleIdentifier(connection.getIdentifier());
+
+      String guacamoleConnectionString = convertBase64(connection.getIdentifier() + "/c/postgresql");
+      // base64 convert {identifier}/c/{dataSource}
+      res.setGuacamoleConnectionString(guacamoleConnectionString);
+    }
+
+    return res;
+  }
+
+  /**
+   * @param instance
+   * @param instanceId
+   */
+  public void updateInstance(Instance instance, String instanceId) {
+    Instance existingInstance = instanceRepo.findByInstanceId(instanceId)
+        .orElseThrow(() -> new GenericException(400, "No instance found with ID " + instanceId));
+
+    entityCopyUtils.copyProperties(existingInstance, instance);
+    instanceRepo.save(existingInstance);
+
   }
 }
