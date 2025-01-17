@@ -1,5 +1,8 @@
 package com.skndan.rdp.service.integration;
 
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.ec2.model.CreateImageRequest;
 import software.amazon.awssdk.services.ec2.model.CreateImageResponse;
@@ -20,6 +23,8 @@ import software.amazon.awssdk.services.ec2.model.Tag;
 import software.amazon.awssdk.services.ec2.model.TagSpecification;
 
 import java.util.Base64;
+import java.util.Calendar;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -30,6 +35,9 @@ import java.util.stream.StreamSupport;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 
 import com.skndan.rdp.client.GuacamoleService;
 import com.skndan.rdp.config.EntityCopyUtils;
@@ -39,6 +47,7 @@ import com.skndan.rdp.entity.constants.CloudProvider;
 import com.skndan.rdp.entity.constants.InstanceState;
 import com.skndan.rdp.entity.constants.Platform;
 import com.skndan.rdp.exception.GenericException;
+import com.skndan.rdp.model.RdpResponse;
 import com.skndan.rdp.model.aws.AmiDetails;
 import com.skndan.rdp.model.aws.AmiRequestDto;
 import com.skndan.rdp.model.aws.AmiResponse;
@@ -115,7 +124,7 @@ public class AwsService {
     LOG.info("Get Instance");
     DescribeInstancesResponse response = ec2Client.describeInstances();
 
-    LOG.info("Fetching SDK Instances OLB8Ho?hhhASkji?b652StGoN4GIyVZs");
+    LOG.info("Fetching SDK Instances");
     List<Instance> awsInstances = response.reservations().stream()
         .flatMap(reservation -> reservation.instances().stream())
         .map(instance -> {
@@ -249,15 +258,18 @@ public class AwsService {
         .build();
 
     // Retrieve current credentials from the default client
-    // StaticCredentialsProvider credentialsProvider = (StaticCredentialsProvider)
-    // ec2Client.credentialsProvider().get();
+    AwsCredentialsConfig credentials = awsCredentialsService.fetchAwsCredentials();
 
-    // Ec2Client clientWithRegion = Ec2Client.builder()
-    // .region(Region.of("region"))
-    // .credentialsProvider(credentialsProvider)
-    // .build();
+    Ec2Client clientWithRegion = Ec2Client.builder()
+        .region(Region.of(request.getRegion()))
+        .credentialsProvider(StaticCredentialsProvider.create(
+            AwsBasicCredentials.create(
+                credentials.getAccessKeyId(),
+                credentials.getSecretAccessKey())))
+        .build();
 
-    RunInstancesResponse runResponse = ec2Client.runInstances(runRequest);
+    RunInstancesResponse runResponse = clientWithRegion.runInstances(runRequest);
+
     var dd = runResponse.instances().get(0);
 
     Instance res = new Instance();
@@ -277,7 +289,8 @@ public class AwsService {
     res.setUsername(ami.getUsername());
     res.setPassword(ami.getPassword());
 
-    awsPostInstanceQueue.waitForInstanceDetails(dd.instanceId());
+    res.setExpiryOn(getExpiryOn());
+
     // GetPasswordDataResponse passwordDataResponse = ec2Client.getPasswordData(
     // GetPasswordDataRequest.builder()
     // .instanceId(dd.instanceId())
@@ -306,9 +319,21 @@ public class AwsService {
     // // base64 convert {identifier}/c/{dataSource}
     // res.setGuacamoleConnectionString(guacamoleConnectionString);
 
-    instanceRepo.save(res);
+    res = instanceRepo.save(res);
+
+    awsPostInstanceQueue.enqueueInstance(dd.instanceId());
 
     return res; // Return the instance ID
+  }
+
+  private Date getExpiryOn() {
+    Date now = new Date();
+
+    // Add 10 hours
+    Calendar calendar = Calendar.getInstance();
+    calendar.setTime(now);
+    calendar.add(Calendar.HOUR, 10);
+    return calendar.getTime();
   }
 
   private String convertBase64(String string) {
@@ -323,11 +348,15 @@ public class AwsService {
    * <p>
    * This method fetches AMI details such as image ID, name, description, and
    * state.
+   * 
+   * @param sortSt
+   * @param pageSize
+   * @param pageNo
    *
    * @return List of {@link AmiDetails} objects containing the details of the
    *         user's AMIs.
    */
-  public List<AmiDetails> getAmis() {
+  public Page<Ami> getAmis(int pageNo, int pageSize, Sort sortSt) {
 
     // Using amazon is taking infinite time to load
     DescribeImagesRequest request = DescribeImagesRequest.builder()
@@ -336,11 +365,66 @@ public class AwsService {
 
     DescribeImagesResponse response = ec2Client.describeImages(request);
 
-    List<AmiDetails> amiList = response.images().stream()
+    List<AmiDetails> awsAmis = response.images().stream()
         .map(image -> new AmiDetails(image.imageId(), image.name(), image.description(), image.stateAsString()))
         .collect(Collectors.toList());
 
-    return amiList;
+    Iterable<Ami> dbAmis = amiRepo.findAll();
+    LOG.info("Total AMI: " + StreamSupport.stream(dbAmis.spliterator(), false).count());
+
+    LOG.info("Creating AMI ID Map");
+    Map<Object, Ami> dbAmiMap = StreamSupport.stream(dbAmis.spliterator(), false)
+        .collect(Collectors.toMap(ami -> ami.getImageId(), Function.identity()));
+
+    // Map AWS AMIs by ID for quick lookup
+    LOG.info("Map AWS AMIs by ID for quick lookup");
+    Set<String> awsAmiIds = awsAmis.stream()
+        .map(ami -> ami.getImageId())
+        .collect(Collectors.toSet());
+
+    LOG.info("Looping Aws AMI and update the DB");
+    for (AmiDetails awsAMI : awsAmis) {
+      LOG.info("Ami : " + awsAMI.getImageId());
+      Ami dbAmi = dbAmiMap.get(awsAMI.getImageId());
+
+      if (dbAmi == null) {
+        // Add new Ami
+        LOG.info("New Ami : " + awsAMI.getImageId());
+
+        Ami ami = new Ami();
+        ami.setImageId(awsAMI.getImageId());
+        ami.setName(awsAMI.getName());
+        ami.setDescription(awsAMI.getDescription());
+        ami.setState(awsAMI.getState());
+        amiRepo.save(ami);
+      } else {
+        // Update existing Ami
+        LOG.info("Existing Ami : " + awsAMI.getImageId());
+        entityCopyUtils.copyProperties(dbAmi, awsAMI);
+
+        // if (((dbInstance.getPassword() == null) ||
+        // dbInstance.getPassword().equals(""))
+        // && !(dbInstance.getState().toLowerCase().equals("terminated"))) {
+        // LOG.info("Scheduled to get password : " + awsInstance.getInstanceId());
+        // awsPostInstanceQueue.schedulePasswordRetrieval(dbInstance);
+        // }
+
+        amiRepo.save(dbAmi);
+        LOG.info("Updating DB AMI : " + awsAMI.getImageId());
+      }
+    }
+
+    // Remove Amis that no longer exist in AWS
+    LOG.info("Remove Ami that no longer exist in AWS");
+    for (Ami dbAmi : dbAmis) {
+      if (!awsAmiIds.contains(dbAmi.getImageId())) {
+        LOG.info("Removed AMI ID : " + dbAmi.getImageId());
+        amiRepo.delete(dbAmi);
+      }
+    }
+
+    Page<Ami> deptList = amiRepo.findAll(PageRequest.of(pageNo, pageSize, sortSt));
+    return deptList;
   }
 
   /**
@@ -416,45 +500,52 @@ public class AwsService {
 
   public Instance getInstanceById(String instanceId) {
 
-    Instance res = new Instance();
+    try {
+      // FIXME: Make optional check or throw exception
+      Instance res = instanceRepo.findByInstanceId(instanceId)
+          .orElseThrow(() -> new GenericException(400, "No instance found with this id: " + instanceId));
 
-    DescribeInstancesRequest request = DescribeInstancesRequest.builder()
-        .instanceIds(instanceId)
-        .build();
+      DescribeInstancesRequest request = DescribeInstancesRequest.builder()
+          .instanceIds(instanceId)
+          .build();
 
-    DescribeInstancesResponse response = ec2Client.describeInstances(request);
+      DescribeInstancesResponse response = ec2Client.describeInstances(request);
 
-    Reservation reservation = response.reservations().get(0);
-    var dd = reservation.instances().get(0);
+      Reservation reservation = response.reservations().get(0);
+      var dd = reservation.instances().get(0);
 
-    res.setInstanceId(dd.instanceId());
-    res.setState(dd.state().name().name());
-    res.setPublicDnsName(dd.publicDnsName());
-    res.setPublicIpAddress(dd.publicIpAddress());
-    res.setPrivateIpAddress(dd.privateIpAddress());
-    res.setInstanceType(dd.instanceTypeAsString());
-    res.setImageId(dd.imageId());
-    res.setKeyName(dd.keyName());
-    res.setLaunchTime(dd.launchTime().toString());
-    res.setAvailabilityZone(dd.placement().availabilityZone());
+      res.setInstanceId(dd.instanceId());
+      res.setState(dd.state().name().name());
+      res.setPublicDnsName(dd.publicDnsName());
+      res.setPublicIpAddress(dd.publicIpAddress());
+      res.setPrivateIpAddress(dd.privateIpAddress());
+      res.setInstanceType(dd.instanceTypeAsString());
+      res.setImageId(dd.imageId());
+      res.setKeyName(dd.keyName());
+      res.setLaunchTime(dd.launchTime().toString());
+      res.setAvailabilityZone(dd.placement().availabilityZone());
 
-    if (!(dd.publicIpAddress() == null) || !dd.publicIpAddress().equals("")) {
-      // create guacamole connection
-      Connection connection = guacamoleService.createConnection(res);
-      res.setGuacamoleIdentifier(connection.getIdentifier());
+      if (!(dd.publicIpAddress() == null) || !dd.publicIpAddress().equals("")) {
+        // create guacamole connection
+        Connection connection = guacamoleService.createConnection(res);
+        res.setGuacamoleIdentifier(connection.getIdentifier());
 
-      String guacamoleConnectionString = convertBase64(connection.getIdentifier() + "/c/postgresql");
-      // base64 convert {identifier}/c/{dataSource}
-      res.setGuacamoleConnectionString(guacamoleConnectionString);
+        String guacamoleConnectionString = convertBase64(connection.getIdentifier() + "/c/postgresql");
+        // base64 convert {identifier}/c/{dataSource}
+        res.setGuacamoleConnectionString(guacamoleConnectionString);
+      }
+
+      return res;
+    } catch (Exception e) {
+      throw new GenericException(400, e.getMessage());
     }
-
-    return res;
   }
 
   /**
    * @param instance
    * @param instanceId
    */
+  @Transactional
   public void updateInstance(Instance instance, String instanceId) {
     Instance existingInstance = instanceRepo.findByInstanceId(instanceId)
         .orElseThrow(() -> new GenericException(400, "No instance found with ID " + instanceId));
@@ -462,5 +553,42 @@ public class AwsService {
     entityCopyUtils.copyProperties(existingInstance, instance);
     instanceRepo.save(existingInstance);
 
+    // injectCredentials(instance);
+  }
+
+  /**
+   * @param instance
+   * @param instanceId
+   */
+  public void injectCredentials(Instance instance) {
+    Ami ami = amiRepo.findByImageId(instance.getImageId())
+        .orElseThrow(() -> new GenericException(400, "AMI is not found"));
+    awsCredentialsService.executeCommand(instance.getInstanceId(), instance.getAvailabilityZone(), ami.getUsername(),
+        ami.getPassword(), true);
+  }
+
+  public Ami getAmiById(String imageId) {
+    Ami ami = amiRepo.findByImageId(imageId)
+        .orElseThrow(() -> new GenericException(400, "AMI is not found"));
+
+    return ami;
+  }
+
+  public RdpResponse getRdp(String instanceId) {
+
+    RdpResponse response = new RdpResponse();
+
+    
+    Instance instance = instanceRepo.findByInstanceId(instanceId)
+    .orElseThrow(() -> new GenericException(400, "Instance not found"));
+    
+    String token = guacamoleService.authenticate();
+    
+    // FIXME: get the base url from application properties
+    String path = "https://127.0.0.1:8443/#/client/" + instance.getGuacamoleConnectionString() + "?token=" + token;
+
+    response.setUrl(path);
+
+    return response;
   }
 }

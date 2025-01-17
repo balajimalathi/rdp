@@ -1,66 +1,89 @@
 package com.skndan.rdp.service.integration.aws;
 
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
 import org.jboss.logging.Logger;
 
-import com.skndan.rdp.client.GuacamoleService;
 import com.skndan.rdp.entity.Instance;
-import com.skndan.rdp.repo.InstanceRepo;
 import com.skndan.rdp.service.integration.AwsService;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-import software.amazon.awssdk.services.ec2.Ec2Client;
+import jakarta.transaction.Transactional;
 
 @ApplicationScoped
 public class AwsPostInstanceQueue {
   private static final Logger LOG = Logger.getLogger(AwsPostInstanceQueue.class);
 
   @Inject
-  ScheduledExecutorService executor;
-
-  @Inject
-  Ec2Client ec2Client; // AWS EC2 Client
-
-  @Inject
-  InstanceRepo instanceRepo;
-
-  @Inject
   AwsService awsService;
 
-  @Inject
-  AwsCredentialsService awsCredentialsService;
+  private final BlockingQueue<String> instanceQueue = new LinkedBlockingQueue<>();
+  private volatile boolean isWorkerRunning = false;
 
-  @Inject
-  GuacamoleService guacamoleService;
-
-  private static final int MAX_RETRY_ATTEMPTS = 5;
-  private static final int INITIAL_DELAY = 5;
-
-  private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
-
-  public void waitForInstanceDetails(String instanceId) {
-    // Schedule a task to run every 5 seconds
-    scheduler.scheduleWithFixedDelay(() -> {
-      try {
-        LOG.info("Checking instance details...");
-        Instance instance = awsService.getInstanceById(instanceId);
-
-        if (instance != null && instance.getPublicDnsName() != null) {
-          LOG.info("Instance is ready with public IP: " + instance.getPublicDnsName()); 
-          awsService.updateInstance(instance, instanceId);
-          scheduler.shutdown(); // Stop polling once the IP is available
-        } else {
-          LOG.info("Instance is still initializing..." + instanceId);
-        }
-      } catch (Exception e) {
-        LOG.error("Error fetching instance details: " + e.getMessage());
-        scheduler.shutdown(); // Stop polling on error
-      }
-    }, INITIAL_DELAY, MAX_RETRY_ATTEMPTS, TimeUnit.SECONDS); // Initial delay = 0, polling interval = 5 seconds
+  public void enqueueInstance(String instanceId) {
+    try {
+      instanceQueue.put(instanceId);
+      startWorker();
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      LOG.error("Failed to enqueue instance ID: " + e.getMessage());
+    }
   }
 
+  private synchronized void startWorker() {
+    if (!isWorkerRunning) {
+      isWorkerRunning = true;
+
+      new Thread(() -> {
+        try {
+          while (!instanceQueue.isEmpty()) {
+            String instanceId = instanceQueue.poll(5, TimeUnit.SECONDS); // Wait for 5 seconds if the queue is empty
+            Thread.sleep(3000);
+            if (instanceId != null) {
+              processInstance(instanceId);
+            }
+          }
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+          LOG.error("Worker thread interrupted: " + e.getMessage());
+        } finally {
+          isWorkerRunning = false; // Allow worker to restart if needed
+        }
+      }).start();
+    }
+  }
+
+  @Transactional
+  public void processInstance(String instanceId) {
+    try {
+      LOG.info("Checking instance details for ID: " + instanceId);
+
+      for (int i = 0; i < 3; i++) { // Retry for up to 3 attempts
+        Instance instance = awsService.getInstanceById(instanceId);
+        LOG.info("For for ID: " + instanceId);
+        if (instance != null && "RUNNING".equals(instance.getState())) {
+
+          LOG.info("Instance is running");
+
+          // Update the instance in a transactional context
+          awsService.updateInstance(instance, instanceId);
+
+          return; // Stop further checks once the instance is ready
+
+        } else {
+          LOG.info("Instance is still initializing: " + instanceId);
+        }
+
+        // Delay between retries
+        Thread.sleep(5000); // 5 seconds
+      }
+
+      LOG.warn("Instance did not reach the expected state within the retry limit: " + instanceId);
+    } catch (Exception e) {
+      LOG.error("Error processing instance ID " + instanceId, e);
+    }
+  }
 }

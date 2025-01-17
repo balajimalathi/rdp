@@ -10,5 +10,6 @@ import lombok.Setter;
 public class InstanceRequestDto {
   private String name;
   private String amiId;
+  private String region;
   private String keyName; 
 }

@@ -1,5 +1,7 @@
 package com.skndan.rdp.entity;
 
+import java.util.Date;
+
 import com.skndan.rdp.entity.constants.CloudProvider;
 import com.skndan.rdp.entity.constants.Platform;
 
@@ -7,6 +9,8 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.Temporal;
+import jakarta.persistence.TemporalType;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -24,7 +28,6 @@ public class Instance extends BaseEntity {
    * The name of the EC2 instance.
    * This field is mapped to a database column with a unique constraint.
    */
-  @Column(unique = true)
   private String name;
 
   /**
@@ -113,4 +116,8 @@ public class Instance extends BaseEntity {
   private String guacamoleIdentifier;
 
   private String guacamoleConnectionString;
+
+  @Temporal(TemporalType.TIMESTAMP)
+  @Column(name = "expiry_on")
+  public Date expiryOn;
 }

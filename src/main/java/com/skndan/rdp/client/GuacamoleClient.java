@@ -2,7 +2,6 @@ package com.skndan.rdp.client;
 
 import java.util.List;
 
-import org.apache.http.conn.ConnectionRequest;
 import org.eclipse.microprofile.rest.client.annotation.RegisterProvider;
 import org.eclipse.microprofile.rest.client.inject.RegisterRestClient;
 
@@ -18,26 +17,27 @@ import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 
+// FIXME: get the base url from application properties
 @RegisterRestClient(baseUri = "https://127.0.0.1:8443/api", configKey = "guacamole-api")
 @RegisterProvider(GuacamoleAuthRequestFilter.class)
 public interface GuacamoleClient {
 
-  @POST
-  @Path("/tokens")
-  @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
-  @Produces(MediaType.APPLICATION_JSON)
-  TokenResponse authenticate(@FormParam("username") String username,
-      @FormParam("password") String password);
+    @POST
+    @Path("/tokens")
+    @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
+    @Produces(MediaType.APPLICATION_JSON)
+    TokenResponse authenticate(@FormParam("username") String username,
+            @FormParam("password") String password);
 
-  @GET
-  @Path("/session/data/{dataSource}/connections")
-  @Produces(MediaType.APPLICATION_JSON)
-  List<Connection> listConnections(@PathParam("dataSource") String dataSource);
+    @GET
+    @Path("/session/data/{dataSource}/connections")
+    @Produces(MediaType.APPLICATION_JSON)
+    List<Connection> listConnections(@PathParam("dataSource") String dataSource);
 
-  @POST
-  @Path("/session/data/{dataSource}/connections")
-  @Consumes(MediaType.APPLICATION_JSON)
-  @Produces(MediaType.APPLICATION_JSON)
-  Connection createConnection(@PathParam("dataSource") String dataSource,
-      Connection connectionRequest);
+    @POST
+    @Path("/session/data/{dataSource}/connections")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    Connection createConnection(@PathParam("dataSource") String dataSource,
+            Connection connectionRequest);
 }

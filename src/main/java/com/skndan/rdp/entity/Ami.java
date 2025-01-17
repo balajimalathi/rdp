@@ -36,4 +36,6 @@ public class Ami extends BaseEntity {
   private String password;
 
   private String description;
+  
+  private String state;
 }
